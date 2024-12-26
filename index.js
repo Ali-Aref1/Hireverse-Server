@@ -10,17 +10,20 @@ app.use(cors());
 
 const Server = {
     dbURI: process.env.DB_URI,
-    serverPort: 3000
+    serverPort: 3000,
+    dbName: process.env.DB_NAME
 };
 
-mongoose.connect(Server.dbURI, { dbName: 'hireverse' })
+// Connect to MongoDB Atlas
+mongoose.connect(Server.dbURI, { dbName: Server.dbName })
     .then(() => {
-        console.log('Successfully connected to MongoDB Atlas and selected database hireverse');
+        console.log(`Successfully connected to MongoDB Atlas and selected database ${Server.dbName}`);
     })
     .catch((err) => {
         console.error('Error connecting to MongoDB Atlas', err);
     });
 
+//Please run ALL passwords by this hashing function first
 async function hashPassword(password) {
     const saltRounds = 10;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
@@ -34,12 +37,15 @@ const User = mongoose.model('User', {
     password: String
 });
 
+//Create a new user
 async function createUser(req) {
     const { Fname, Lname, email, password } = req.body;
     const hashedPassword = await hashPassword(password);
     const user = new User({ Fname, Lname, email, password: hashedPassword });
     await user.save();
 }
+
+//Handle Registration
 
 app.post('/register', async (req, res) => {
     const existingUser = await User.findOne({ email: req.body.email });
@@ -51,11 +57,14 @@ app.post('/register', async (req, res) => {
     res.send('User created');
 });
 
+
+//List users (FOR TESTING PURPOSES ONLY)
 app.get('/users', async (req, res) => {
     const users = await User.find();
     res.json(users);
 });
 
+//Handle Logins
 app.post('/login', async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email }).exec();
@@ -78,22 +87,31 @@ const server = app.listen(Server.serverPort, () => {
 });
 
 // Handle cleanup on termination signals
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
     console.log('SIGINT received. Closing server...');
-    server.close(() => {
+    server.close(async () => {
         console.log('Express server closed');
-        mongoose.connection.close(() => {
+        try {
+            await mongoose.connection.close();
             console.log('Mongoose connection closed');
             process.exit(0);
-        });
+        } catch (err) {
+            console.error('Error closing Mongoose connection', err);
+            process.exit(1);
+        }
     });
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     console.log('SIGTERM received. Closing server...');
-    server.close(() => {
+    server.close(async () => {
         console.log('Express server closed');
-        mongoose.connection.close();
-        process.exit(0);
+        try {
+            await mongoose.connection.close();
+            process.exit(0);
+        } catch (err) {
+            console.error('Error closing Mongoose connection', err);
+            process.exit(1);
+        }
     });
 });
