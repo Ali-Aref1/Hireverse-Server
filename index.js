@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -57,6 +58,11 @@ app.post('/register', async (req, res) => {
     res.send('User created');
 });
 
+app.post('/generate', async (req, res) => {
+    console.log("received post request: ", req.body);
+    res.send(req.body);
+});
+
 
 //List users (FOR TESTING PURPOSES ONLY)
 app.get('/users', async (req, res) => {
@@ -69,13 +75,13 @@ app.post('/login', async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email }).exec();
     if (!user) {
-        res.status(400).send('Invalid email');
+        res.status(400).send('Invalid email or password');
         return;
     }
     const isPasswordCorrect = await bcrypt.compare(password, user.password);
     
     if (!isPasswordCorrect) {
-        res.status(400).send('Invalid password');
+        res.status(400).send('Invalid email or password');
         return;
     }
     res.send('Logged in successfully.');
