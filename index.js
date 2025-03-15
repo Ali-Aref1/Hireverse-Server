@@ -60,7 +60,15 @@ app.post('/register', async (req, res) => {
 
 app.post('/generate', async (req, res) => {
     console.log("received post request: ", req.body);
-    res.send(req.body);
+
+    if (!req.body.prompt) {
+        res.status(400).send('Error: prompt is undefined');
+        return;
+    }
+
+    console.log("extracted prompt: ", req.body.prompt);
+    res.status(200).send(req.body.prompt);
+    //SEND IT TO FLASK HERE
 });
 
 
