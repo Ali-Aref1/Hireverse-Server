@@ -58,19 +58,6 @@ app.post('/register', async (req, res) => {
     res.send('User created');
 });
 
-app.post('/generate', async (req, res) => {
-    console.log("received post request: ", req.body);
-
-    if (!req.body.prompt) {
-        res.status(400).send('Error: prompt is undefined');
-        return;
-    }
-
-    console.log("extracted prompt: ", req.body.prompt);
-    res.status(200).send(req.body.prompt);
-    //SEND IT TO FLASK HERE
-});
-
 
 //List users (FOR TESTING PURPOSES ONLY)
 app.get('/users', async (req, res) => {
@@ -93,6 +80,36 @@ app.post('/login', async (req, res) => {
         return;
     }
     res.send('Logged in successfully.');
+});
+
+
+app.post('/send_prompt', async (req, res) => {
+    console.log("received post request: ", req.body);
+
+    if (!req.body.user_input) {
+        res.status(400).send('Error: prompt is undefined');
+        return;
+    }
+
+    console.log("extracted prompt: ", req.body.user_input);
+    try {
+        const response = await axios.post('http://localhost:5000/ask_question', req.body);
+        res.status(200).send(response.data);
+    } catch (error) {
+        console.error('Error forwarding request:', error.message);
+        res.status(500).send('Error forwarding request');
+    }
+});
+
+app.get('/start_interview', async (req, res) => {
+    try {
+        console.log("starting interview")
+        const response = await axios.get('http://localhost:5000/start_interview');
+        res.status(200).send(response.data);
+    } catch (error) {
+        console.error('Error forwarding request:', error.message);
+        res.status(500).send('Error forwarding request');
+    }
 });
 
 // Start the server and store the reference
