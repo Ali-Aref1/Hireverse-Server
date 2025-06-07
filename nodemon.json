@@ -1,6 +1,6 @@
 {
     "watch": ["./"],
-    "exec": "npx kill-port 3000 && node index.js",
+    "exec": "npx kill-port 3000 && node server/index.js",
     "legacy-watch": true,
     "restartable": "rs",
     "delay": "400"
