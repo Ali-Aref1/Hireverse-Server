@@ -43,7 +43,7 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                     clearTimeout(sessions[userId].timeout);
                     sessions[userId].timeout = null;
                     // Resume video stream if reconnecting
-                    webcamIO.to(sessions[userId].socketId).emit('resume_video', { userId });
+                    webrtcSocket.resumeBuffering(userId);
                 }
                 sessions[userId].socketId = socket.id;
                 socket.emit("message_history", sessions[userId].messages);
@@ -98,10 +98,11 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
             const userId = socket.user?.id || socket.user?._id;
             if (!userId || !sessions[userId]) return;
             webcamIO.to(sessions[userId].socketId).emit('pause_video', { userId });
+            webrtcSocket.pauseBuffering(userId);
             sessions[userId].timeout = setTimeout(async () => {
                 // Save video on backend after timeout
-                if (typeof webcamIO.endAndSaveVideo === 'function') {
-                    await webcamIO.endAndSaveVideo(userId);
+                if (typeof webrtcSocket.endAndSaveVideo === 'function') {
+                    await webrtcSocket.endAndSaveVideo(userId);
                 }
                 delete sessions[userId];
                 console.log(`Session for user ${userId} expired after disconnect.`);

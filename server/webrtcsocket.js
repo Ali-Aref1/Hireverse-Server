@@ -47,6 +47,16 @@ async function endAndSaveVideo(userId) {
   }
 }
 
+function pauseBuffering(userId) {
+  userPaused[userId] = true;
+  console.log(`[WebRTC] Buffering paused for user ${userId}`);
+}
+
+function resumeBuffering(userId) {
+  userPaused[userId] = false;
+  console.log(`[WebRTC] Buffering resumed for user ${userId}`);
+}
+
 module.exports = function setupWebRTCSocket(io) {
   io.on("connection", (socket) => {
     let peer = null;
@@ -56,10 +66,16 @@ module.exports = function setupWebRTCSocket(io) {
       peer = new RTCPeerConnection();
       peer.ondatachannel = (event) => {
         dataChannel = event.channel;
-        userBuffers[userId] = [];
-        userStartTimes[userId] = Date.now();
+        if (!userBuffers[userId]) {
+          userBuffers[userId] = [];
+          userStartTimes[userId] = Date.now();
+        }
 
         dataChannel.onmessage = (event) => {
+          if (userPaused[userId]) {
+            // Optionally log or skip buffering
+            return;
+          }
           if (typeof event.data === "string") {
             try {
               const msg = JSON.parse(event.data);
@@ -99,3 +115,5 @@ module.exports = function setupWebRTCSocket(io) {
 
 // Expose a save function for external use
 module.exports.endAndSaveVideo = endAndSaveVideo;
+module.exports.pauseBuffering = pauseBuffering;
+module.exports.resumeBuffering = resumeBuffering;
