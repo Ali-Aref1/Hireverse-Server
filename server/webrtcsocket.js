@@ -110,6 +110,15 @@ module.exports = function setupWebRTCSocket(io) {
     socket.on("disconnect", () => {
       if (peer) peer.close();
     });
+
+    socket.on("video_chunk", ({ userId, chunk }) => {
+      if (!chunk) {
+        console.error(`[WebcamStream] Received undefined chunk for user ${userId}`);
+        return;
+      }
+      userBuffers[userId] = userBuffers[userId] || [];
+      userBuffers[userId].push(Buffer.from(chunk));
+    });
   });
 };
 

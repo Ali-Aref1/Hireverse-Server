@@ -9,6 +9,8 @@ const webrtcSocket = require('./webrtcsocket');
 
 
 module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
+
+    const timeoutDuration = 60000; // Default timeout duration in milliseconds
     const webcamIO = ReactSocket; // Use the same socket.io instance
 
     // Handle AI responses from Flask
@@ -106,7 +108,7 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 }
                 delete sessions[userId];
                 console.log(`Session for user ${userId} expired after disconnect.`);
-            }, 60000);
+            }, timeoutDuration || 60000); // Default to 60 seconds
             console.log(`User ${userId} disconnected. Session will expire in 60 seconds unless they reconnect.`);
         });
     });
