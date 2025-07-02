@@ -15,13 +15,14 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
 
     // Handle AI responses from Flask
     FlaskSocket.on("ai_response", (data) => {
-        // data: { recipient: socketId, ... }
+        // data: { phase, response, recipient }
         // Store the message in the correct session
         for (const userId in sessions) {
             if (sessions[userId].socketId === data.recipient) {
                 sessions[userId].messages.push({
                     sender: "Interviewer",
-                    message: data.response
+                    message: data.response,
+                    phase: data.phase
                 });
                 break;
             }
@@ -29,7 +30,10 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         // Forward to the correct socket
         const targetSocket = ReactSocket.sockets.sockets.get(data.recipient);
         if (targetSocket) {
-            targetSocket.emit("ai_response", data.response);
+            targetSocket.emit("ai_response", {
+                phase: data.phase,
+                response: data.response
+            });
         } else {
             console.log(`Socket with ID ${data.recipient} not found`);
         }
@@ -58,6 +62,7 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 };
                 FlaskSocket.emit("start_interview", { userId, socketId: socket.id, name: `${data.data.Fname} ${data.data.Lname}` });
                 console.log(`User ${userId} started a new interview.`);
+                console.log(sessions)
             }
         });
 
