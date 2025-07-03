@@ -36,6 +36,44 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         }
     });
 
+    FlaskSocket.on("flask_server_error", async (data) => {
+        // data: { response, recipient }
+        // Find the userId whose user_id matches data.recipient
+        let targetSocketId = null;
+        let userId = null;
+        for (const id in sessions) {
+            if (id === data.recipient) {
+                targetSocketId = sessions[id].socketId;
+                userId = id;
+                break;
+            }
+        }
+        if (targetSocketId) {
+            const targetSocket = ReactSocket.sockets.sockets.get(targetSocketId);
+            if (targetSocket) {
+                targetSocket.emit("error", data.response);
+                console.log(`Flask server error sent to user ${data.recipient}: ${JSON.stringify(data.response)}`);
+            } else {
+                console.log(`Socket with ID ${targetSocketId} not found for flask_server_error`);
+            }
+            // Cleanly end the user's session and cancel their video recording
+            if (userId && sessions[userId]) {
+                // End video recording (delete it)
+                if (typeof webrtcSocket.endAndDeleteVideo === 'function') {
+                    try {
+                        await webrtcSocket.endAndDeleteVideo(userId);
+                    } catch (err) {
+                        console.log(`Error deleting video for user ${userId}:`, err);
+                    }
+                }
+                delete sessions[userId];
+                console.log(`Session for user ${userId} ended due to flask server error.`);
+            }
+        } else {
+            console.log(`No session found for user_id ${data.recipient} on flask_server_error`);
+        }
+    });
+
     ReactSocket.on("connection", (socket) => {
         socket.on("attach_user", (data) => {
             const userId = data.id || data._id;

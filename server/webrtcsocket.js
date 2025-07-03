@@ -8,6 +8,8 @@ const userStartTimes = {};
 const userTimeouts = {};
 const userPaused = {};
 
+const uploadsDir = path.join(__dirname, 'uploads');
+
 async function saveWebcamFile(userId) {
   const savePath = path.join(__dirname, 'uploads');
   if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
@@ -45,6 +47,18 @@ async function endAndSaveVideo(userId) {
   } else {
     console.log(`[WebcamStream] No data to save for user ${userId}`);
   }
+}
+
+async function endAndDeleteVideo(userId) {
+  // Remove in-memory buffers and state
+  if (userBuffers[userId]) delete userBuffers[userId];
+  if (userStartTimes[userId]) delete userStartTimes[userId];
+  if (userPaused[userId]) delete userPaused[userId];
+  if (userTimeouts[userId]) {
+    clearTimeout(userTimeouts[userId]);
+    delete userTimeouts[userId];
+  }
+
 }
 
 function pauseBuffering(userId) {
@@ -126,3 +140,4 @@ module.exports = function setupWebRTCSocket(io) {
 module.exports.endAndSaveVideo = endAndSaveVideo;
 module.exports.pauseBuffering = pauseBuffering;
 module.exports.resumeBuffering = resumeBuffering;
+module.exports.endAndDeleteVideo = endAndDeleteVideo;
