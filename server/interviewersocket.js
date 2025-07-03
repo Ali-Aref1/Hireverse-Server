@@ -30,10 +30,7 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         // Forward to the correct socket
         const targetSocket = ReactSocket.sockets.sockets.get(data.recipient);
         if (targetSocket) {
-            targetSocket.emit("ai_response", {
-                phase: data.phase,
-                response: data.response
-            });
+            targetSocket.emit("ai_response", data.response);
         } else {
             console.log(`Socket with ID ${data.recipient} not found`);
         }
