@@ -8,7 +8,7 @@ const User = mongoose.model('User', {
     Lname: String,
     email: String,
     password: String
-});
+},'users');
 
 // Please run ALL passwords by this hashing function first
 async function hashPassword(password) {

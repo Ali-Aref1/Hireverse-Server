@@ -13,8 +13,9 @@ const uploadsDir = path.join(__dirname, 'uploads');
 async function saveWebcamFile(userId) {
   const savePath = path.join(__dirname, 'uploads');
   if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
-  const filePath = path.join(savePath, `${userId}_${Date.now()}.webm`);
-  const tempPath = path.join(savePath, `${userId}_${Date.now()}_temp.webm`);
+  const timestamp = Date.now();
+  const filePath = path.join(savePath, `${userId}_${timestamp}.webm`);
+  const tempPath = path.join(savePath, `${userId}_${timestamp}_temp.webm`);
   const webmBuffer = Buffer.concat(userBuffers[userId] || []);
 
   try {
@@ -30,6 +31,7 @@ async function saveWebcamFile(userId) {
         .on('error', reject);
     });
     console.log(`[WebcamStream] Saved seekable video for user ${userId} at ${filePath}`);
+    return filePath;
   } catch (err) {
     console.error(`[WebcamStream] Failed to process/save video for user ${userId}:`, err);
   } finally {
@@ -43,7 +45,7 @@ async function endAndSaveVideo(userId) {
     userBuffers[userId].length > 0 &&
     Buffer.concat(userBuffers[userId]).length > 0
   ) {
-    await saveWebcamFile(userId);
+    const filePath = await saveWebcamFile(userId);
     delete userBuffers[userId];
     delete userStartTimes[userId];
     delete userPaused[userId];
@@ -51,6 +53,7 @@ async function endAndSaveVideo(userId) {
       clearTimeout(userTimeouts[userId]);
       delete userTimeouts[userId];
     }
+    return filePath;
   } else {
     console.log(`[WebcamStream] No data to save for user ${userId}`);
   }

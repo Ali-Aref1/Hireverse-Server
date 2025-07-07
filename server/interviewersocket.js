@@ -5,6 +5,7 @@ let chalk;
     chalk = (await import('chalk')).default;
 })();
 
+const { saveInterview } = require('./interview_store');
 const webrtcSocket = require('./webrtcsocket');
 
 
@@ -18,7 +19,6 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         // data: { phase, response, recipient: user_id }
         // Find the session by user_id (data.recipient)
         const userId = data.recipient;
-        console.log(userId);
         const session = sessions[userId];
         if (session) {
             session.messages.push({
@@ -26,7 +26,6 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 message: data.response,
                 phase: data.phase
             });
-            console.log(data);
             console.log(`${chalk.red("[CHAT]")} ${chalk.cyan("Interviewer: ")} ${data.response}`);
             // Find the socket by session.socketId
             const targetSocket = ReactSocket.sockets.sockets.get(session.socketId);
@@ -34,6 +33,30 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 targetSocket.emit("ai_response", data);
             } else {
                 console.log(`Socket with ID ${session.socketId} not found for user ${userId}`);
+            }
+            if(data.phase === "end") {
+                if (typeof webrtcSocket.endAndSaveVideo === 'function') {
+                    webrtcSocket.endAndSaveVideo(userId).then((filePath) => {
+                        console.log(`Video recording ended and saved for user ${userId}, filePath: ${filePath}`);
+                        const interviewData = {
+                            user_id: userId,
+                            duration: 0, //...for now!!!
+                            video_path: filePath,
+                            messages: session.messages,
+                            eval: data.eval
+                        };
+                        saveInterview(interviewData).then(() => {
+                            console.log(`Interview data saved for user ${userId}`);
+                        }).catch(err => {
+                            console.log(`Error saving interview data for user ${userId}:`, err);
+                        });
+                    }).catch(err => {
+                        console.log(`Error saving video for user ${userId}:`, err);
+                    });
+                }
+                // Cleanly end the user's session
+                delete sessions[userId];
+                console.log(`Session for user ${userId} ended after interview completion.`);
             }
         } else {
             console.log(`No session found for user_id ${userId} on ai_response`);
@@ -101,7 +124,6 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 };
                 FlaskSocket.emit("start_interview", { userId, name: `${data.data.Fname} ${data.data.Lname}` });
                 console.log(`User ${userId} started a new interview.`);
-                console.log(sessions)
             }
         });
 
@@ -123,21 +145,6 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         });
 
         // Handle explicit session end (e.g., user clicks back)
-        socket.on("end_session", async () => {
-            const userId = socket.user?.id || socket.user?._id;
-            if (userId && sessions[userId]) {
-                const targetSocket = webcamIO.sockets.sockets.get(sessions[userId].socketId);
-                if (targetSocket && targetSocket.connected) {
-                    targetSocket.emit('end_video', { userId });
-                }
-                // Also save on backend in case frontend doesn't respond
-                if (typeof webrtcSocket.endAndSaveVideo === 'function') {
-                    await webrtcSocket.endAndSaveVideo(userId);
-                }
-                delete sessions[userId];
-                console.log(`Session for user ${userId} ended by user action.`);
-            }
-        });
 
         socket.on("disconnect", () => {
             const userId = socket.user?.id || socket.user?._id;
@@ -145,9 +152,9 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
             webcamIO.to(sessions[userId].socketId).emit('pause_video', { userId });
             webrtcSocket.pauseBuffering(userId);
             sessions[userId].timeout = setTimeout(async () => {
-                // Save video on backend after timeout
-                if (typeof webrtcSocket.endAndSaveVideo === 'function') {
-                    await webrtcSocket.endAndSaveVideo(userId);
+                // Delete video on backend after timeout
+                if (typeof webrtcSocket.endAndDeleteVideo === 'function') {
+                    await webrtcSocket.endAndDeleteVideo(userId);
                 }
                 delete sessions[userId];
                 console.log(`Session for user ${userId} expired after disconnect.`);
