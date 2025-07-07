@@ -19,6 +19,9 @@ async function saveWebcamFile(userId) {
 
   try {
     fs.writeFileSync(tempPath, webmBuffer);
+    if (webmBuffer.length === 0) {
+      throw new Error("Webcam buffer is empty, not saving file.");
+    }
     await new Promise((resolve, reject) => {
       ffmpeg(tempPath)
         .outputOptions('-c:v copy')
@@ -35,7 +38,11 @@ async function saveWebcamFile(userId) {
 }
 
 async function endAndSaveVideo(userId) {
-  if (userBuffers[userId] && userBuffers[userId].length > 0) {
+  if (
+    userBuffers[userId] &&
+    userBuffers[userId].length > 0 &&
+    Buffer.concat(userBuffers[userId]).length > 0
+  ) {
     await saveWebcamFile(userId);
     delete userBuffers[userId];
     delete userStartTimes[userId];

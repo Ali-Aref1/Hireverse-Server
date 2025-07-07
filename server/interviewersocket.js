@@ -24,13 +24,16 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                     message: data.response,
                     phase: data.phase
                 });
+                console.log(data)
+                console.log(`${chalk.red("[CHAT]")} ${chalk.cyan("Interviewer: ")} ${data.response}`);
                 break;
             }
         }
         // Forward to the correct socket
         const targetSocket = ReactSocket.sockets.sockets.get(data.recipient);
+        
         if (targetSocket) {
-            targetSocket.emit("ai_response", data.response);
+            targetSocket.emit("ai_response", data);
         } else {
             console.log(`Socket with ID ${data.recipient} not found`);
         }
@@ -116,7 +119,7 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 socketId: socket.id,
                 message: msg
             });
-            console.log(`${chalk.red("[CHAT]")} ${chalk.yellow(`${socket.user.data.Fname} ${socket.user.data.Lname}`)}: ${msg}`);
+            console.log(`${chalk.red("[CHAT]")} ${chalk.yellow(`${socket.user.data.Fname} ${socket.user.data.Lname}:`)} ${msg}`);
         });
 
         // Handle explicit session end (e.g., user clicks back)
