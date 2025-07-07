@@ -1,4 +1,4 @@
-const sessions = {}; // { [mongoUserId]: { socketId, messages: [], timeout: NodeJS.Timeout|null } }
+const sessions = {}; // { [mongoUserId]: { socketId, messages: [], timeout: NodeJS.Timeout|null, timer } }
 
 let chalk;
 (async () => {
@@ -7,6 +7,14 @@ let chalk;
 
 const { saveInterview } = require('./interview_store');
 const webrtcSocket = require('./webrtcsocket');
+const Stopwatch = require('./timer'); // Import the Stopwatch class
+
+const endSessionEarly = async (userId) => {
+    if (typeof webrtcSocket.endAndDeleteVideo === 'function') {
+            await webrtcSocket.endAndDeleteVideo(userId);
+        }
+        delete sessions[userId];
+    }
 
 
 module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
@@ -35,12 +43,14 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 console.log(`Socket with ID ${session.socketId} not found for user ${userId}`);
             }
             if(data.phase === "end") {
+                session.timer.pause()
                 if (typeof webrtcSocket.endAndSaveVideo === 'function') {
                     webrtcSocket.endAndSaveVideo(userId).then((filePath) => {
                         console.log(`Video recording ended and saved for user ${userId}, filePath: ${filePath}`);
+                        console.log(`Interview duration: ${session.timer.getTimeFormatted()}`);
                         const interviewData = {
                             user_id: userId,
-                            duration: 0, //...for now!!!
+                            duration: session.timer.getTime(),
                             video_path: filePath,
                             messages: session.messages,
                             eval: data.eval
@@ -105,11 +115,12 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         socket.on("attach_user", (data) => {
             const userId = data.id || data._id;
             socket.user = data;
-
+            
             if (sessions[userId]) {
                 if (sessions[userId].timeout) {
                     clearTimeout(sessions[userId].timeout);
                     sessions[userId].timeout = null;
+                    sessions[userId].timer.start(); // Resume the timer if it was paused
                     // Resume video stream if reconnecting
                     webrtcSocket.resumeBuffering(userId);
                 }
@@ -120,8 +131,11 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 sessions[userId] = {
                     socketId: socket.id,
                     messages: [],
-                    timeout: null
+                    timeout: null,
+                    timer: new Stopwatch()
                 };
+                // Start the timer for the session
+                sessions[userId].timer.start();
                 FlaskSocket.emit("start_interview", { userId, name: `${data.data.Fname} ${data.data.Lname}` });
                 console.log(`User ${userId} started a new interview.`);
             }
@@ -145,19 +159,34 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
         });
 
         // Handle explicit session end (e.g., user clicks back)
+        socket.on("end_session", async () => {
+            const userId = socket.user?.id || socket.user?._id;
+            if (!userId || !sessions[userId]) return;
+            endSessionEarly(userId).catch(err => {
+                console.log(`Error ending session for user ${userId}:`, err);
+            }).finally(() => {
+                console.log(`Session for user ${userId} ended explicitly.`);
+                FlaskSocket.emit("end_interview", { userId });
+            });
+        });
+
 
         socket.on("disconnect", () => {
             const userId = socket.user?.id || socket.user?._id;
             if (!userId || !sessions[userId]) return;
             webcamIO.to(sessions[userId].socketId).emit('pause_video', { userId });
             webrtcSocket.pauseBuffering(userId);
+            sessions[userId].timer.pause(); // Pause the timer on disconnect
             sessions[userId].timeout = setTimeout(async () => {
                 // Delete video on backend after timeout
-                if (typeof webrtcSocket.endAndDeleteVideo === 'function') {
-                    await webrtcSocket.endAndDeleteVideo(userId);
-                }
-                delete sessions[userId];
-                console.log(`Session for user ${userId} expired after disconnect.`);
+                endSessionEarly(userId).catch(err => {
+                    console.log(`Error ending session for user ${userId}:`, err);
+                }).finally(
+                    () => {
+                        console.log(`Session for user ${userId} ended due to inactivity.`);
+                    }
+                )
+                
             }, timeoutDuration || 60000); // Default to 60 seconds
             console.log(`User ${userId} disconnected. Session will expire in 60 seconds unless they reconnect.`);
         });
