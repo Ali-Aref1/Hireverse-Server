@@ -31,7 +31,7 @@ async function saveWebcamFile(userId) {
         .on('error', reject);
     });
     console.log(`[WebcamStream] Saved seekable video for user ${userId} at ${filePath}`);
-    return filePath;
+    return `${userId}_${timestamp}.webm`;
   } catch (err) {
     console.error(`[WebcamStream] Failed to process/save video for user ${userId}:`, err);
   } finally {
