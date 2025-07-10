@@ -1,6 +1,8 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const path = require('path');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const { io } = require("socket.io-client");
@@ -8,6 +10,8 @@ const { Server } = require("socket.io");
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'uploads')))
 
 // Configure CORS to allow all origins (wildcard)
 app.use(cors({
@@ -34,6 +38,8 @@ mongoose.connect(ExpressServer.dbURI, { dbName: ExpressServer.dbName })
 // --- AUTH LOGIC MOVED TO auth.js ---
 const auth = require('./auth');
 
+const interviewData = require('./interview_store');
+
 // Registration
 app.post('/register', auth.register);
 
@@ -46,7 +52,14 @@ app.post('/login', auth.login);
 // Refresh token
 app.post('/refresh_token', (req, res) => auth.refreshToken(req, res, tokenBlacklist));
 
-// --- END AUTH LOGIC ---
+
+const authenticateToken = require('./middleware/authMiddleware');
+
+// Protected routes
+app.get('/me', authenticateToken, auth.getMe);
+
+app.get('/get_interviews', authenticateToken,interviewData.getInterviewsByUserId);
+
 
 // Start the server and store the reference
 const server = app.listen(ExpressServer.serverPort, () => {
@@ -70,10 +83,6 @@ FlaskSocket.on("disconnect", () => {
 // Move all socket logic to interviewersocket.js
 const setupInterviewerSocket = require('./interviewersocket');
 setupInterviewerSocket(ReactSocket, FlaskSocket);
-
-// Webcam stream logic
-//const setupWebcamStream = require('./webcamstream');
-//setupWebcamStream(ReactSocket);
 
 // WebRTC socket logic
 const setupWebRTCSocket = require('./webrtcsocket');

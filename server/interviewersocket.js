@@ -5,9 +5,11 @@ let chalk;
     chalk = (await import('chalk')).default;
 })();
 
-const { saveInterview } = require('./interview_store');
+const database = require('./interview_store');
 const webrtcSocket = require('./webrtcsocket');
 const Stopwatch = require('./timer'); // Import the Stopwatch class
+const jwt = require('jsonwebtoken');
+const eval = require('./aws_eval')
 
 const endSessionEarly = async (userId) => {
     if (typeof webrtcSocket.endAndDeleteVideo === 'function') {
@@ -18,6 +20,21 @@ const endSessionEarly = async (userId) => {
 
 
 module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
+
+    // Add this middleware BEFORE your ReactSocket.on("connection", ...)
+    ReactSocket.use((socket, next) => {
+        const token = socket.handshake.auth && socket.handshake.auth.token;
+        if (!token) {
+            return next(new Error("Authentication error: No token provided"));
+        }
+        jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+            if (err) {
+                return next(new Error("Authentication error: Invalid token"));
+            }
+            socket.user = decoded; // Attach decoded user info to socket
+            next();
+        });
+    });
 
     const timeoutDuration = 60000; // Default timeout duration in milliseconds
     const webcamIO = ReactSocket; // Use the same socket.io instance
@@ -43,30 +60,44 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                 console.log(`Socket with ID ${session.socketId} not found for user ${userId}`);
             }
             if(data.phase === "end") {
-                session.timer.pause()
-                if (typeof webrtcSocket.endAndSaveVideo === 'function') {
-                    webrtcSocket.endAndSaveVideo(userId).then((filePath) => {
-                        console.log(`Video recording ended and saved for user ${userId}, filePath: ${filePath}`);
-                        console.log(`Interview duration: ${session.timer.getTimeFormatted()}`);
-                        const interviewData = {
-                            user_id: userId,
-                            duration: session.timer.getTime(),
-                            video_path: filePath,
-                            messages: session.messages,
-                            eval: data.eval
-                        };
-                        saveInterview(interviewData).then(() => {
-                            console.log(`Interview data saved for user ${userId}`);
-                        }).catch(err => {
-                            console.log(`Error saving interview data for user ${userId}:`, err);
-                        });
-                    }).catch(err => {
-                        console.log(`Error saving video for user ${userId}:`, err);
-                    });
-                }
+                session.timer.pause();
+                const interviewData = {
+                    user_id: userId,
+                    time: new Date(),
+                    duration: session.timer.getTime(),
+                    messages: session.messages,
+                    eval: data.eval
+                };
+
+                (async () => {
+                    try {
+                        // 1. Save interview and get the document (with _id)
+                        const interviewDoc = await database.saveInterview(interviewData);
+                        console.log(`Interview data saved for user ${userId}`);
+
+                        // 2. Save the video using the interview _id as filename
+                        let filePath;
+                        if (typeof webrtcSocket.endAndSaveVideo === 'function') {
+                            filePath = await webrtcSocket.endAndSaveVideo(userId, interviewDoc);
+                            console.log(`Video saved for user ${userId} at ${filePath}`);
+                        }
+
+                        // 3. Extract features and evaluate
+                        const features = await eval.extract_features(userId, filePath);
+                        const FPL_scores = await eval.sagemaker_evaluator(features);
+
+                        // 4. Update the interview with the evaluation results
+                        await database.addEvaluation(interviewDoc._id, FPL_scores);
+                        console.log(`Evaluation scores added for user ${userId}`);
+                    } catch (err) {
+                        console.log(`Error during interview end processing for user ${userId}:`, err);
+                    } finally {
+                        delete sessions[userId];
+                        console.log(`Session for user ${userId} ended after interview completion.`);
+                    }
+                })();
                 // Cleanly end the user's session
-                delete sessions[userId];
-                console.log(`Session for user ${userId} ended after interview completion.`);
+                
             }
         } else {
             console.log(`No session found for user_id ${userId} on ai_response`);
