@@ -97,7 +97,54 @@ async function sagemaker_evaluator(instances) {
     });
 }
 
+async function extract_emotion(messages) {
+    const data = JSON.stringify({
+        messages: messages
+    });
+    
+    const options = {
+        hostname: 'localhost',
+        port: 5000,
+        path: '/extract_emotion',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': data.length,
+        },
+    };
+    
+    console.log('Sending request to Flask emotion extractor...');
+    
+    return new Promise((resolve, reject) => {
+        const req = require('http').request(options, (res) => {
+            let responseData = '';
+            res.on('data', (chunk) => {
+                responseData += chunk;
+            });
+            res.on('end', () => {
+                try {
+                    const result = JSON.parse(responseData);
+                    if (result.status === 'success') {
+                        console.log('Emotion extraction complete.');
+                        resolve(result.emotion_analysis);
+                    } else {
+                        reject(new Error(result.error || 'Failed to extract emotions'));
+                    }
+                } catch (e) {
+                    reject(new Error('Invalid JSON response from emotion extractor'));
+                }
+            });
+        });
+        req.on('error', (e) => {
+            reject(e);
+        });
+        req.write(data);
+        req.end();
+    });
+}
+
 module.exports = {
     sagemaker_evaluator,
-    extract_features
+    extract_features,
+    extract_emotion
 };

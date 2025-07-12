@@ -86,8 +86,28 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
                         const features = await eval.extract_features(userId, filePath);
                         const FPL_scores = await eval.sagemaker_evaluator(features);
 
-                        // 4. Update the interview with the evaluation results
-                        await database.addEvaluation(interviewDoc._id, FPL_scores);
+                        // 4. Extract emotions from candidate messages
+                        const candidateMessages = session.messages
+                            .filter(msg => msg.sender === "You")
+                            .map(msg => msg.message);
+                        
+                        let emotionAnalysis = null;
+                        if (candidateMessages.length > 0) {
+                            try {
+                                emotionAnalysis = await eval.extract_emotion(candidateMessages);
+                                console.log(`Emotion analysis complete for user ${userId}`);
+                            } catch (emotionErr) {
+                                console.log(`Warning: Emotion extraction failed for user ${userId}:`, emotionErr.message);
+                            }
+                        }
+
+                        // 5. Update the interview with the evaluation results
+                        const evaluationUpdate = { FPL_scores };
+                        if (emotionAnalysis) {
+                            evaluationUpdate.emotion = emotionAnalysis;
+                        }
+                        
+                        await database.addEvaluation(interviewDoc._id, evaluationUpdate);
                         console.log(`Evaluation scores added for user ${userId}`);
                     } catch (err) {
                         console.log(`Error during interview end processing for user ${userId}:`, err);

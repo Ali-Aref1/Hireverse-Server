@@ -34,6 +34,14 @@ const Interview = mongoose.model('Interview', {
             Calm: Number,
             NotAwkward: Number,
             NotStressed: Number
+        },
+        emotion: { // Emotion analysis from candidate messages
+                sadness: Number,
+                happiness: Number,
+                anger: Number,
+                fear: Number,
+                surprise: Number,
+                neutral: Number
         }
     }
 },'interviews');
@@ -51,13 +59,26 @@ async function saveInterview(interviewData) {
         throw error;
     }
 }
-async function addEvaluation(interviewId, FPL_scores) {
+async function addEvaluation(interviewId, evaluationData) {
     try {
         const interview = await Interview.findById(interviewId);
         if (!interview) {
             throw new Error('Interview not found');
         }
-        interview.eval.FPL_scores = FPL_scores;
+        
+        // Handle legacy calls with just FPL_scores
+        if (evaluationData.FPL_scores) {
+            interview.eval.FPL_scores = evaluationData.FPL_scores;
+        } else {
+            // Legacy format: evaluationData is directly FPL_scores
+            interview.eval.FPL_scores = evaluationData;
+        }
+        
+        // Add emotion data if provided
+        if (evaluationData.emotion) {
+            interview.eval.emotion = evaluationData.emotion;
+        }
+        
         await interview.save();
         return interview;
     } catch (error) {
