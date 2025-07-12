@@ -82,10 +82,14 @@ async function getInterviewById(interviewId) {
 async function getInterviewsByUserId(req, res) {
     // Use authenticated user's id
     const authenticatedUserId = req.user.id; // Set by JWT middleware
+    console.log('Fetching interviews for user ID:', authenticatedUserId); // Debug log
+    
     try {
         const interviews = await Interview.find({ user_id: authenticatedUserId });
+        console.log('Found interviews:', interviews.length); // Debug log
+        
         if (!interviews || interviews.length === 0) {
-            return res.status(404).json({ error: 'No interviews found for this user' });
+            return res.status(200).json([]); // Return empty array instead of 404
         }
         res.json(interviews);
     } catch (error) {

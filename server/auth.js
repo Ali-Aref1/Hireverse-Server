@@ -99,8 +99,6 @@ async function login(req, res) {
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
     );
-    console.log('[LOGIN] refreshToken jti:', jti);
-    console.log('[LOGIN] refreshToken:', refreshToken);
 
     // Set cookie options based on rememberMe
     const cookieOptions = {
@@ -121,6 +119,19 @@ async function login(req, res) {
             Lname: user.Lname,
             email: user.email
         }
+    });
+}
+
+async function logout(req, res) {
+    const token = req.cookies.refreshToken;
+    if (!token) {
+        return res.status(401).send('No token provided');
+    }
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).send('Invalid token');
+        // Optionally, you can add the token to a blacklist here
+        res.clearCookie('refreshToken');
+        res.status(200).send('Logged out successfully');
     });
 }
 
@@ -181,6 +192,7 @@ module.exports = {
     register,
     listUsers,
     login,
+    logout,
     refreshToken,
     User, // Exported for use elsewhere if needed
     getMe,

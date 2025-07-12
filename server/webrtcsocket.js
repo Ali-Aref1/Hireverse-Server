@@ -7,6 +7,9 @@ const userBuffers = {}; // { userId: [Buffer, ...] }
 const userStartTimes = {};
 const userTimeouts = {};
 const userPaused = {};
+const userBufferSizes = {}; // Track buffer sizes for memory management
+const MAX_BUFFER_SIZE = 50 * 1024 * 1024; // 50MB max buffer per user
+const CHUNK_PROCESS_INTERVAL = 100; // Process chunks every 100ms
 
 const uploadsDir = path.join(__dirname, 'uploads');
 
@@ -49,6 +52,7 @@ async function endAndSaveVideo(userId,interviewDoc) {
     delete userBuffers[userId];
     delete userStartTimes[userId];
     delete userPaused[userId];
+    delete userBufferSizes[userId]; // Clean up buffer size tracking
     if (userTimeouts[userId]) {
       clearTimeout(userTimeouts[userId]);
       delete userTimeouts[userId];
@@ -64,11 +68,11 @@ async function endAndDeleteVideo(userId) {
   if (userBuffers[userId]) delete userBuffers[userId];
   if (userStartTimes[userId]) delete userStartTimes[userId];
   if (userPaused[userId]) delete userPaused[userId];
+  if (userBufferSizes[userId]) delete userBufferSizes[userId]; // Clean up buffer size tracking
   if (userTimeouts[userId]) {
     clearTimeout(userTimeouts[userId]);
     delete userTimeouts[userId];
   }
-
 }
 
 function pauseBuffering(userId) {
@@ -82,52 +86,128 @@ function resumeBuffering(userId) {
 }
 
 module.exports = function setupWebRTCSocket(io) {
+  // Throttled chunk processing to prevent overwhelming the server
+  const chunkQueues = {}; // { userId: [chunks...] }
+  const processingUsers = new Set(); // Track which users are being processed
+
+  const processChunkQueue = async (userId) => {
+    if (processingUsers.has(userId)) return;
+    if (!chunkQueues[userId] || chunkQueues[userId].length === 0) return;
+
+    processingUsers.add(userId);
+    
+    try {
+      const chunks = chunkQueues[userId].splice(0, 5); // Process max 5 chunks at a time
+      for (const chunk of chunks) {
+        if (userPaused[userId]) break; // Stop processing if paused
+        
+        const buffer = Buffer.from(chunk);
+        if (!userBuffers[userId]) {
+          userBuffers[userId] = [];
+          userBufferSizes[userId] = 0;
+        }
+        
+        // Check buffer size limit
+        if (userBufferSizes[userId] + buffer.length > MAX_BUFFER_SIZE) {
+          console.warn(`[WebRTC] Buffer size limit reached for user ${userId}, dropping oldest data`);
+          // Remove oldest chunks to make room
+          while (userBuffers[userId].length > 0 && userBufferSizes[userId] + buffer.length > MAX_BUFFER_SIZE) {
+            const removed = userBuffers[userId].shift();
+            userBufferSizes[userId] -= removed.length;
+          }
+        }
+        
+        userBuffers[userId].push(buffer);
+        userBufferSizes[userId] += buffer.length;
+      }
+    } finally {
+      processingUsers.delete(userId);
+      
+      // Schedule next processing if there are more chunks
+      if (chunkQueues[userId] && chunkQueues[userId].length > 0) {
+        setTimeout(() => processChunkQueue(userId), CHUNK_PROCESS_INTERVAL);
+      }
+    }
+  };
+
   io.on("connection", (socket) => {
     let peer = null;
     let dataChannel = null;
 
     socket.on("webrtc_offer", async ({ userId, offer }) => {
-      peer = new RTCPeerConnection();
-      peer.ondatachannel = (event) => {
-        dataChannel = event.channel;
-        if (!userBuffers[userId]) {
-          userBuffers[userId] = [];
-          userStartTimes[userId] = Date.now();
-        }
-
-        dataChannel.onmessage = (event) => {
-          if (userPaused[userId]) {
-            // Optionally log or skip buffering
-            return;
+      try {
+        // Configure peer connection with bandwidth optimizations
+        peer = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+          iceCandidatePoolSize: 10
+        });
+        
+        peer.ondatachannel = (event) => {
+          dataChannel = event.channel;
+          if (!userBuffers[userId]) {
+            userBuffers[userId] = [];
+            userStartTimes[userId] = Date.now();
+            userBufferSizes[userId] = 0;
+            chunkQueues[userId] = [];
           }
-          if (typeof event.data === "string") {
-            try {
-              const msg = JSON.parse(event.data);
-              console.log(`[WebRTC] Parsed DataChannel message:`, msg);
-            } catch (err) {
-              console.error(`[WebRTC] Failed to parse DataChannel string message:`, err);
+
+          dataChannel.onmessage = (event) => {
+            if (userPaused[userId]) {
+              return; // Skip processing if paused
             }
-          } else {
-            userBuffers[userId].push(Buffer.from(event.data));
+            
+            if (typeof event.data === "string") {
+              try {
+                const msg = JSON.parse(event.data);
+                console.log(`[WebRTC] Parsed DataChannel message:`, msg);
+              } catch (err) {
+                console.error(`[WebRTC] Failed to parse DataChannel string message:`, err);
+              }
+            } else {
+              // Add to queue instead of immediate processing
+              if (!chunkQueues[userId]) chunkQueues[userId] = [];
+              chunkQueues[userId].push(event.data);
+              
+              // Start processing if not already running
+              processChunkQueue(userId);
+            }
+          };
+
+          dataChannel.onerror = (error) => {
+            console.error(`[WebRTC] DataChannel error for user ${userId}:`, error);
+          };
+        };
+
+        await peer.setRemoteDescription(offer);
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        socket.emit("webrtc_answer", { answer });
+
+        peer.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit("webrtc_ice_candidate", { candidate: event.candidate });
           }
         };
-      };
 
-      await peer.setRemoteDescription(offer);
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      socket.emit("webrtc_answer", { answer });
+        peer.onconnectionstatechange = () => {
+          console.log(`[WebRTC] Connection state for user ${userId}: ${peer.connectionState}`);
+          if (peer.connectionState === 'failed' || peer.connectionState === 'disconnected') {
+            console.log(`[WebRTC] Connection failed/disconnected for user ${userId}`);
+          }
+        };
 
-      peer.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit("webrtc_ice_candidate", { candidate: event.candidate });
-        }
-      };
+      } catch (error) {
+        console.error(`[WebRTC] Error handling offer for user ${userId}:`, error);
+      }
     });
 
     socket.on("webrtc_ice_candidate", async ({ candidate }) => {
       if (peer) {
-        await peer.addIceCandidate(candidate);
+        try {
+          await peer.addIceCandidate(candidate);
+        } catch (error) {
+          console.error(`[WebRTC] Error adding ICE candidate:`, error);
+        }
       }
     });
 
@@ -140,8 +220,19 @@ module.exports = function setupWebRTCSocket(io) {
         console.error(`[WebcamStream] Received undefined chunk for user ${userId}`);
         return;
       }
-      userBuffers[userId] = userBuffers[userId] || [];
-      userBuffers[userId].push(Buffer.from(chunk));
+      
+      // Add to processing queue instead of immediate buffer
+      if (!chunkQueues[userId]) chunkQueues[userId] = [];
+      chunkQueues[userId].push(chunk);
+      
+      // Limit queue size to prevent memory issues
+      if (chunkQueues[userId].length > 100) {
+        console.warn(`[WebRTC] Chunk queue too large for user ${userId}, dropping oldest chunks`);
+        chunkQueues[userId] = chunkQueues[userId].slice(-50); // Keep only last 50 chunks
+      }
+      
+      // Start processing
+      processChunkQueue(userId);
     });
   });
 };

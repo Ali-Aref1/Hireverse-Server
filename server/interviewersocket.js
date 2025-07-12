@@ -143,6 +143,11 @@ module.exports = function setupInterviewerSocket(ReactSocket, FlaskSocket) {
     });
 
     ReactSocket.on("connection", (socket) => {
+        // Add ping/pong support for connection quality monitoring
+        socket.on('ping', (timestamp) => {
+            socket.emit('pong', timestamp);
+        });
+
         socket.on("attach_user", (data) => {
             const userId = data.id || data._id;
             socket.user = data;

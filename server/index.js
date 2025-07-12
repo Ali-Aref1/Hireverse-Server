@@ -49,6 +49,8 @@ app.get('/users', auth.listUsers);
 // Login
 app.post('/login', auth.login);
 
+app.post('/logout', auth.logout);
+
 // Refresh token
 app.post('/refresh_token', (req, res) => auth.refreshToken(req, res, tokenBlacklist));
 
